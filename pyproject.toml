@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "omfadmin"
+version = "0.1.0"
+description = ""
+authors = ["Jacob Wasserman <jwasserman@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+textual = "^0.74.0"
+networkx = "^3.3"
+
+
+[tool.poetry.group.dev.dependencies]
+ipython = "^8.26.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+omfadmin = 'omfadmin.cli:main'
