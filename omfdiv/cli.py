@@ -66,10 +66,10 @@ class TreeApp(App):
         self, division: Optional[Division]
     ) -> Optional[List[Division]]:
         if division is None:
-            q = "SELECT id, subtype, has_children, names FROM admins_data where parent_division_id IS NULL;"
+            q = "SELECT id, subtype, has_children, names FROM divisions_data where parent_division_id IS NULL;"
             args = []
         else:
-            q = "SELECT id, subtype, has_children, names FROM admins_data where parent_division_id = ?;"
+            q = "SELECT id, subtype, has_children, names FROM divisions_data where parent_division_id = ?;"
             args = [division.id_]
 
         self.db.execute(q, args)
@@ -91,7 +91,7 @@ def cli():
 
 
 @cli.command()
-@click.option("--db", required=False, default="admins.duckdb")
+@click.option("--db", required=False, default="divisions.duckdb")
 def ui(db: str):
     con = duckdb.connect(db)
     app = TreeApp(con)
@@ -99,14 +99,14 @@ def ui(db: str):
 
 
 @cli.command()
-@click.option("--db", required=False, default="admins.duckdb")
+@click.option("--db", required=False, default="divisions.duckdb")
 def builddb(db: str):
     con = duckdb.connect(db)
-    con.execute("DROP TABLE IF EXISTS admins_data;")
+    con.execute("DROP TABLE IF EXISTS divisions_data;")
     con.execute("SET s3_region = 'us-west-2';")
     con.execute(
         """
-    CREATE TABLE admins_data AS (
+    CREATE TABLE divisions_data AS (
         SELECT
             id,
             names,
@@ -126,9 +126,7 @@ def builddb(db: str):
     """
     )
     con.execute(
-        """
-    CREATE INDEX admins_parent_division_id_idx ON admins_data (parent_division_id);
-    """
+        "CREATE INDEX admins_parent_division_id_idx ON divisions_data (parent_division_id);"
     )
 
 
