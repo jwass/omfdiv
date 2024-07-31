@@ -1,65 +1,136 @@
 import json
+from typing import List, Optional
 
+import click
 import duckdb
-import networkx as nx
 from textual.app import App, ComposeResult
 from textual.widgets import Tree
 
 
+class Division:
+    def __init__(self, id_, subtype, has_children, names):
+        self.id_ = id_
+        self.subtype = subtype
+        self.has_children = has_children
+        self.names = names
+
+        self._name = None
+
+    @property
+    def name(self):
+        if self._name is not None:
+            return self._name
+
+        name = None
+        if self.names is None:
+            name = ""
+        elif self.names.get("common"):
+            try:
+                idx = self.names["common"]["key"].index("en")
+            except ValueError:
+                idx = None
+            if idx is not None:
+                name = self.names["common"]["value"][idx]
+        if name is None:
+            name = self.names["primary"]
+
+        self._name = name
+        return name
+
+
 class TreeApp(App):
-    def __init__(self, g):
+    def __init__(self, db):
         super().__init__()
-        self.g = g
+        self.db = db
 
     def compose(self) -> ComposeResult:
         tree: Tree[dict] = Tree("World")
+        tree.show_root = False
         tree.root.expand()
 
-        roots = [n for n in self.g.nodes if not self.g.in_edges(n)]
-        roots.sort(key=lambda k: self.division_name(k))
-        visited = set()
-
-        for root in roots:
-            tree.root.add(self.division_name(root), data=root)
         yield tree
 
     def on_tree_node_expanded(self, event: Tree.NodeExpanded):
         node = event.node
-        division_id = node.data
-        if division_id is None:
-            return
-        children = list(self.g.neighbors(division_id))
-        children.sort(key=lambda k: self.division_name(k))
-        for c in children:
-            node.add(self.division_name(c), data=c)
+        division = node.data
+        divisions = self.query_child_divisions(division)
+        divisions.sort(key=lambda d: d.name)
+        for division in divisions:
+            node.add(
+                self.fmt(division.name, division.subtype),
+                data=division,
+                allow_expand=division.has_children,
+            )
 
-    def division_name(self, id_):
-        if "names" not in self.g.nodes[id_]:
-            print(f"WHAT! No name in {id_}")
-            name = "MISSING"
+    def query_child_divisions(
+        self, division: Optional[Division]
+    ) -> Optional[List[Division]]:
+        if division is None:
+            q = "SELECT id, subtype, has_children, names FROM admins_data where parent_division_id IS NULL;"
+            args = []
         else:
-            names = self.g.nodes[id_]["names"]
-            if names.get("common") and names["common"].get("en"):
-                name = names["common"]["en"]
-            else:
-                name = names.get("primary")
-        return name
+            q = "SELECT id, subtype, has_children, names FROM admins_data where parent_division_id = ?;"
+            args = [division.id_]
 
-def main():
-    g = nx.DiGraph()
-    i = 0
-    with open("/Users/jwasserman/divisions.json") as f:
-        for line in f:
-            r = json.loads(line)
-            g.add_node(r["id"], names=r["names"])
-            if r["parent_division_id"]:
-                g.add_edge(r["parent_division_id"], r["id"])
+        self.db.execute(q, args)
+        results = self.db.fetchall()
+        divisions = []
+        for row in results:
+            id_, subtype, has_children, names = row
+            division = Division(id_, subtype, has_children, names)
+            divisions.append(division)
+        return divisions
 
-            i += 1
+    def fmt(self, name, subtype):
+        return f"{name} ({subtype})"
 
-    app = TreeApp(g)
+
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+@click.option("--db", required=False, default="admins.duckdb")
+def ui(db: str):
+    con = duckdb.connect(db)
+    app = TreeApp(con)
     app.run()
 
 
+@cli.command()
+@click.option("--db", required=False, default="admins.duckdb")
+def builddb(db: str):
+    con = duckdb.connect(db)
+    con.execute("DROP TABLE IF EXISTS admins_data;")
+    con.execute("SET s3_region = 'us-west-2';")
+    con.execute(
+        """
+    CREATE TABLE admins_data AS (
+        SELECT
+            id,
+            names,
+            subtype,
+            a.parent_division_id,
+            b.n IS NOT NULL as has_children
+        FROM read_parquet('s3://overturemaps-us-west-2/release/2024-07-22.0/theme=divisions/type=division/*') a
+        LEFT JOIN (
+            SELECT
+                parent_division_id,
+                COUNT(1) AS n
+            FROM read_parquet('s3://overturemaps-us-west-2/release/2024-07-22.0/theme=divisions/type=division/*')
+            GROUP BY parent_division_id
+        ) b
+        ON a.id = b.parent_division_id
+    );
+    """
+    )
+    con.execute(
+        """
+    CREATE INDEX admins_parent_division_id_idx ON admins_data (parent_division_id);
+    """
+    )
+
+
 if __name__ == "__main__":
-    main()
+    cli()
