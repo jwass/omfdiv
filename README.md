@@ -1,6 +1,9 @@
 # omfdiv
 
-Overture Maps admins data interactive thingy
+Overture Maps divisions data TUI
+
+<img width="1208" alt="Screenshot 2024-08-01 at 5 04 16 PM" src="https://github.com/user-attachments/assets/747e2fe2-d575-4d7d-aa1a-7bc5af6af682">
+
 
 ## Build the divisions duckdb database
 
